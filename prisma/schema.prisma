@@ -1,0 +1,128 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  moduleFormat = "esm"
+  runtime = "nodejs"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  role         String     @default("EDITOR") // ADMIN | EDITOR
+  posts        BlogPost[]
+  createdAt    DateTime   @default(now())
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Media {
+  id        String     @id @default(cuid())
+  url       String
+  alt       String?
+  mimeType  String?
+  size      Int?
+  posts     BlogPost[] @relation("HeroMedia")
+  createdAt DateTime   @default(now())
+}
+
+model PostVersion {
+  id        String   @id @default(cuid())
+  postId    String
+  post      BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  title     String
+  slug      String
+  content   String
+  status    String
+  createdAt DateTime @default(now())
+  createdBy String
+
+  @@index([postId, createdAt])
+}
+
+model BlogPost {
+  id            String    @id @default(cuid())
+  title         String
+  slug          String    @unique
+  content       String
+  defaultLocale String    @default("en")
+  status        String    @default("DRAFT")
+  publishedAt   DateTime?
+  author        User      @relation(fields: [authorId], references: [id])
+  authorId      String
+  heroMedia     Media?    @relation("HeroMedia", fields: [heroMediaId], references: [id])
+  heroMediaId   String?
+  publishAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  versions      PostVersion[]
+  translations  PostTranslation[]
+  search_vector Unsupported("tsvector")?
+}
+
+model PostTranslation {
+  id        String   @id @default(cuid())
+  postId    String
+  post      BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  locale    String
+  title     String
+  slug      String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([postId, locale])
+  @@unique([locale, slug])
+  @@index([postId])
+}
+
+model Webhook {
+  id        String   @id @default(cuid())
+  url       String
+  event     String   // "post.published" | "post.unpublished"
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  deliveries WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id            String    @id @default(cuid())
+  webhookId     String
+  webhook       Webhook   @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  event         String
+  payload       Json
+  status        String    @default("PENDING") // PENDING | SUCCESS | FAILED
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(5)
+  lastError     String?
+  nextAttemptAt DateTime  @default(now())
+  deliveredAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([status, nextAttemptAt])
+}
+
+model SchedulerLock {
+  id          String    @id @default("singleton")
+  lockedUntil DateTime?
+}
