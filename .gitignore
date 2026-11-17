@@ -12,3 +12,6 @@ dist/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+*.db
+*.sqlite
+*.sqlite3
