@@ -19,6 +19,8 @@ async function postToValidatedTarget(
   const address = addresses[0];
   if (!address) throw new Error("Webhook hostname did not resolve");
 
+  // The connection uses the already-validated address. The URL hostname remains
+  // unchanged so HTTP Host and HTTPS certificate verification use the hostname.
   const pinnedLookup = ((
     _hostname: string,
     options: { all?: boolean } | number,
@@ -29,29 +31,30 @@ async function postToValidatedTarget(
     } else {
       callback(null, address.address, address.family);
     }
-  ) as unknown as typeof dnsLookup;
+  }) as unknown as typeof dnsLookup;
 
   return new Promise((resolve, reject) => {
     const requestOptions = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       lookup: pinnedLookup,
-      ...(url.protocol === "https:" ? { servername: url.hostname.replace(/^\[|\]$/g, "") } : {}),
     };
     const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(
       url,
       requestOptions,
       (response) => {
         const status = response.statusCode ?? 0;
-        response.resume();
-        response.once("end", () => resolve(status));
-        response.once("error", reject);
+        // The response body is not used. Destroy it rather than draining an
+        // untrusted, potentially unbounded response body.
+        response.destroy();
+        resolve(status);
       },
     );
 
-    request.setTimeout(REQUEST_TIMEOUT_MS, () => {
+    const timeout = setTimeout(() => {
       request.destroy(new Error("Webhook request timed out"));
-    });
+    }, REQUEST_TIMEOUT_MS);
+    request.once("close", () => clearTimeout(timeout));
     request.once("error", reject);
     request.end(JSON.stringify(payload));
   });
@@ -63,8 +66,8 @@ export async function deliverWebhook(
   options: { nodeEnv?: string; lookupFn?: (hostname: string) => Promise<Address[]> } = {},
 ): Promise<number> {
   const target = await validateWebhookUrl(rawUrl, options);
-  // The HTTP client connects to the validated address, while TLS still verifies
-  // the original hostname. Redirects are intentionally not followed.
+  // Redirects are deliberately not followed. A redirect is returned as a
+  // non-2xx status and handled by the existing retry/failure policy.
   return postToValidatedTarget(target, payload);
 }
 
@@ -98,6 +101,7 @@ export async function processDeliveries(prisma: PrismaClient) {
       });
     } catch (e) {
       const failed = attempts >= MAX_ATTEMPTS;
+      // Preserve the existing exponential retry schedule.
       const delayMs = Math.pow(2, attempts - 1) * 60_000;
 
       await prisma.webhookDelivery.update({
