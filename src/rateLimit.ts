@@ -12,41 +12,31 @@ const pool = new Pool({
   connectionTimeoutMillis: 5_000,
 });
 
-let limiterPromise: Promise<RateLimiterPostgres> | undefined;
+let limiter: RateLimiterPostgres | undefined;
 
-function getLimiter(): Promise<RateLimiterPostgres> {
-  if (!limiterPromise) {
-    limiterPromise = new Promise((resolve, reject) => {
-      let limiter: RateLimiterPostgres;
-      limiter = new RateLimiterPostgres(
-        {
-          storeClient: pool,
-          points: 5,
-          duration: 60 * 15,
-          blockDuration: 60 * 15,
-          keyPrefix: "cms_login",
-          tableName: "cms_login_rate_limits",
-          // Provisioned by Prisma migration; runtime credentials need DML only.
-          tableCreated: true,
-        },
-        (error) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve(limiter);
-          }
-        },
-      );
+function getLimiter(): RateLimiterPostgres {
+  if (!limiter) {
+    // tableCreated=true invokes the constructor callback synchronously.
+    // Instantiate without a callback so the caller receives the real instance.
+    limiter = new RateLimiterPostgres({
+      storeClient: pool,
+      points: 5,
+      duration: 60 * 15,
+      blockDuration: 60 * 15,
+      keyPrefix: "cms_login",
+      tableName: "cms_login_rate_limits",
+      // Provisioned by Prisma migration; runtime credentials need DML only.
+      tableCreated: true,
     });
   }
 
-  return limiterPromise;
+  return limiter;
 }
 
 export async function checkLoginRateLimit(key: string) {
-  await consumeLoginAttempt(await getLimiter(), hashLoginRateLimitKey(key));
+  await consumeLoginAttempt(getLimiter(), hashLoginRateLimitKey(key));
 }
 
 export async function resetLoginRateLimit(key: string) {
-  await resetLoginAttemptLimit(await getLimiter(), hashLoginRateLimitKey(key));
+  await resetLoginAttemptLimit(getLimiter(), hashLoginRateLimitKey(key));
 }
