@@ -1,24 +1,49 @@
-import { RateLimiterMemory } from "rate-limiter-flexible";
+import { Pool } from "pg";
+import { RateLimiterPostgres } from "rate-limiter-flexible";
+import {
+  consumeLoginAttempt,
+  resetLoginAttemptLimit,
+} from "./loginRateLimit.js";
 
-// 5 attempts per 15 minutes per IP
-const limiter = new RateLimiterMemory({
-  points: 5,
-  duration: 60 * 15,
-  blockDuration: 60 * 15,
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL!,
+  max: 5,
+  connectionTimeoutMillis: 5_000,
 });
 
-export async function checkLoginRateLimit(key: string) {
-  try {
-    await limiter.consume(key);
-  } catch {
-    const ms = await limiter.get(key).then((r) => r?.msBeforeNext ?? 0);
-    const minutes = Math.ceil(ms / 60000);
-    throw new Error(
-      `Too many login attempts. Try again in ${minutes} minute(s).`
-    );
+let limiterPromise: Promise<RateLimiterPostgres> | undefined;
+
+function getLimiter(): Promise<RateLimiterPostgres> {
+  if (!limiterPromise) {
+    limiterPromise = new Promise((resolve, reject) => {
+      let limiter: RateLimiterPostgres;
+      limiter = new RateLimiterPostgres(
+        {
+          storeClient: pool,
+          points: 5,
+          duration: 60 * 15,
+          blockDuration: 60 * 15,
+          keyPrefix: "cms_login",
+          tableName: "cms_login_rate_limits",
+        },
+        (error) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve(limiter);
+          }
+        },
+      );
+    });
   }
+
+  return limiterPromise;
+}
+
+export async function checkLoginRateLimit(key: string) {
+  await consumeLoginAttempt(await getLimiter(), key);
 }
 
 export async function resetLoginRateLimit(key: string) {
-  await limiter.delete(key);
+  await resetLoginAttemptLimit(await getLimiter(), key);
 }
