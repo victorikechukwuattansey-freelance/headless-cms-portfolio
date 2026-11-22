@@ -249,6 +249,7 @@ test("webhook validation rejects private, loopback, link-local and reserved IPv4
     "172.20.0.1",
     "192.168.1.2",
     "100.100.100.200",
+    "168.63.129.16",
     "224.0.0.1",
     "240.0.0.1",
   ]) {
