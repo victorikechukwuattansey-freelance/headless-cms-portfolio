@@ -1,6 +1,9 @@
 node_modules
-# Keep environment variables out of version control
+# Keep environment files out of version control; allow safe templates
 .env
+.env.*
+!.env.example
+!.env.*.example
 
 /src/generated/prisma
 backups/
