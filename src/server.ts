@@ -10,6 +10,7 @@ import { startScheduler } from "./scheduler.js";
 import { GraphQLError } from "graphql";
 import { useSentry } from "@envelop/sentry";
 import * as Sentry from "@sentry/node";
+import { sentryGraphqlPluginOptions } from "./sentryGraphql.js";
 
 const schema = makeExecutableSchema({ typeDefs, resolvers });
 
@@ -19,8 +20,7 @@ const yoga = createYoga({
   graphiql: true,
   plugins: [
     useSentry({
-      includeRawResult: false,
-      includeExecuteVariables: true,
+      ...sentryGraphqlPluginOptions,
       skipError: (error) => {
         // Skip UserError (your intentional errors) so they don't flood Sentry[reference:2]
         const original = (error as { originalError?: unknown })?.originalError ?? error;
