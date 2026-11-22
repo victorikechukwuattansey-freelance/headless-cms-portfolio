@@ -61,11 +61,6 @@ export const typeDefs = /* GraphQL */ `
   user: User!
 }
 
-type Query {
-  # ...
-  me: User
-}
-
   input CreateBlogPostInput {
     title: String!
     slug: String
