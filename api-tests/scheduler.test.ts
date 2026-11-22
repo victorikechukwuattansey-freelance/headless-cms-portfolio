@@ -9,6 +9,7 @@ function createPrismaDouble({
 } = {}) {
   const calls = {
     lock: 0,
+    ensureLock: 0,
     findPosts: 0,
     updatePosts: [],
     findDeliveries: 0,
@@ -16,6 +17,10 @@ function createPrismaDouble({
 
   const prisma = {
     schedulerLock: {
+      upsert: async () => {
+        calls.ensureLock += 1;
+        return { id: "singleton" };
+      },
       updateMany: async () => {
         calls.lock += 1;
         return { count: lockAcquired ? 1 : 0 };
@@ -48,6 +53,7 @@ test("scheduler tick skips work when the database lock is held", async () => {
 
   await runSchedulerTick(prisma as never);
 
+  assert.equal(calls.ensureLock, 1);
   assert.equal(calls.lock, 1);
   assert.equal(calls.findPosts, 0);
   assert.equal(calls.findDeliveries, 0);
@@ -59,6 +65,7 @@ test("scheduler tick publishes due posts and processes webhook deliveries", asyn
 
   await runSchedulerTick(prisma as never);
 
+  assert.equal(calls.ensureLock, 1);
   assert.equal(calls.findPosts, 1);
   assert.deepEqual(calls.updatePosts[0].where, { id: "post-1" });
   assert.equal(calls.updatePosts[0].data.status, "PUBLISHED");
