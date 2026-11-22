@@ -1,7 +1,9 @@
 import type { PrismaClient } from "./generated/prisma/client.js";
 import { processDeliveries } from "./webhookWorker.js";
 
-const LOCK_TTL_MS = 55_000; // less than the 60-second tick interval
+// Keep the lease beyond Fly's 300-second graceful shutdown window so a
+// replacement worker cannot acquire it while the old worker is draining.
+const LOCK_TTL_MS = 330_000;
 const DEFAULT_INTERVAL_MS = 60_000;
 
 type SchedulerOptions = {
@@ -10,7 +12,7 @@ type SchedulerOptions = {
   clearIntervalFn?: typeof clearInterval;
 };
 
-async function tryAcquireLock(prisma: PrismaClient): Promise<boolean> {
+async function tryAcquireLock(prisma: PrismaClient): Promise<Date | null> {
   await prisma.schedulerLock.upsert({
     where: { id: "singleton" },
     update: {},
@@ -18,49 +20,65 @@ async function tryAcquireLock(prisma: PrismaClient): Promise<boolean> {
   });
 
   const now = new Date();
+  const lockedUntil = new Date(now.getTime() + LOCK_TTL_MS);
   const result = await prisma.schedulerLock.updateMany({
     where: {
       id: "singleton",
       OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }],
     },
-    data: {
-      lockedUntil: new Date(now.getTime() + LOCK_TTL_MS),
-    },
+    data: { lockedUntil },
   });
-  return result.count === 1;
+
+  return result.count === 1 ? lockedUntil : null;
+}
+
+async function releaseLock(prisma: PrismaClient, lockedUntil: Date): Promise<void> {
+  // Compare the lease value so an expired owner cannot clear a newer owner's lock.
+  await prisma.schedulerLock.updateMany({
+    where: { id: "singleton", lockedUntil },
+    data: { lockedUntil: null },
+  });
 }
 
 export async function runSchedulerTick(prisma: PrismaClient): Promise<void> {
-  const acquired = await tryAcquireLock(prisma);
-  if (!acquired) return;
+  const lockedUntil = await tryAcquireLock(prisma);
+  if (!lockedUntil) return;
 
   try {
-    const due = await prisma.blogPost.findMany({
-      where: {
-        status: "DRAFT",
-        publishAt: { lte: new Date() },
-      },
-    });
-
-    for (const post of due) {
-      await prisma.blogPost.update({
-        where: { id: post.id },
-        data: {
-          status: "PUBLISHED",
-          publishedAt: new Date(),
-          publishAt: null,
+    try {
+      const due = await prisma.blogPost.findMany({
+        where: {
+          status: "DRAFT",
+          publishAt: { lte: new Date() },
         },
       });
-      console.log(`[scheduler] published ${post.slug}`);
-    }
-  } catch (error) {
-    console.error("[scheduler] publish error:", error);
-  }
 
-  try {
-    await processDeliveries(prisma);
-  } catch (error) {
-    console.error("[scheduler] delivery error:", error);
+      for (const post of due) {
+        await prisma.blogPost.update({
+          where: { id: post.id },
+          data: {
+            status: "PUBLISHED",
+            publishedAt: new Date(),
+            publishAt: null,
+          },
+        });
+        console.log(`[scheduler] published ${post.slug}`);
+      }
+    } catch (error) {
+      console.error("[scheduler] publish error:", error);
+    }
+
+    try {
+      await processDeliveries(prisma);
+    } catch (error) {
+      console.error("[scheduler] delivery error:", error);
+    }
+  } finally {
+    try {
+      await releaseLock(prisma, lockedUntil);
+    } catch (error) {
+      console.error("[scheduler] lock release error:", error);
+    }
   }
 }
 
