@@ -1,32 +1,63 @@
 import { URL } from "node:url";
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { lookup as dnsLookup } from "node:dns/promises";
+import { isIP, BlockList } from "node:net";
 
-const BLOCKED_HOSTS = new Set([
-  "localhost",
-  "metadata.google.internal",
-]);
+type Address = { address: string; family: number };
+type LookupFn = (hostname: string) => Promise<Address[]>;
 
-// CIDR-style ranges we refuse to POST to
-function isPrivateIp(ip: string): boolean {
-  if (isIP(ip) === 4) {
-    const [a, b] = ip.split(".").map(Number);
-    if (a === 10) return true;
-    if (a === 127) return true;
-    if (a === 169 && b === 254) return true; // link-local + AWS/GCP metadata
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    return false;
-  }
-  // IPv6
-  const lower = ip.toLowerCase();
-  if (lower === "::1") return true;
-  if (lower.startsWith("fe80:")) return true;
-  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
-  return false;
+export type ValidatedWebhookTarget = {
+  url: URL;
+  addresses: Address[];
+  localDevelopmentTarget: boolean;
+};
+
+const blockedV4 = new BlockList();
+for (const [subnet, prefix] of [
+  ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10],
+  ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12],
+  ["192.0.0.0", 24], ["192.0.2.0", 24], ["192.31.196.0", 24],
+  ["192.52.193.0", 24], ["192.88.99.0", 24], ["192.168.0.0", 16],
+  ["192.175.48.0", 24], ["198.18.0.0", 15], ["168.63.129.16", 32], ["198.51.100.0", 24],
+  ["203.0.113.0", 24], ["224.0.0.0", 4], ["240.0.0.0", 4],
+] as const) {
+  blockedV4.addSubnet(subnet, prefix, "ipv4");
 }
 
-export async function validateWebhookUrl(raw: string): Promise<void> {
+const blockedV6 = new BlockList();
+for (const [subnet, prefix] of [
+  ["::", 128], ["::1", 128], ["::ffff:0:0", 96],
+  ["64:ff9b::", 96], ["64:ff9b:1::", 48], ["100::", 64],
+  ["2001::", 23], ["2001:db8::", 32], ["2002::", 16],
+  ["3fff::", 20], ["fc00::", 7], ["fe80::", 10], ["ff00::", 8],
+] as const) {
+  blockedV6.addSubnet(subnet, prefix, "ipv6");
+}
+
+const globalV6 = new BlockList();
+globalV6.addSubnet("2000::", 3, "ipv6");
+
+function hostnameOf(url: URL): string {
+  return url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+}
+
+function isBlockedAddress(address: string, family: number): boolean {
+  if (family === 4) return blockedV4.check(address, "ipv4");
+  if (family === 6) {
+    return !globalV6.check(address, "ipv6") || blockedV6.check(address, "ipv6");
+  }
+  return true;
+}
+
+async function defaultLookup(hostname: string): Promise<Address[]> {
+  const family = isIP(hostname);
+  if (family) return [{ address: hostname, family }];
+  return dnsLookup(hostname, { all: true, verbatim: true });
+}
+
+export async function validateWebhookUrl(
+  raw: string,
+  options: { nodeEnv?: string; lookupFn?: LookupFn } = {},
+): Promise<ValidatedWebhookTarget> {
   let url: URL;
   try {
     url = new URL(raw);
@@ -34,41 +65,51 @@ export async function validateWebhookUrl(raw: string): Promise<void> {
     throw new Error("Invalid URL");
   }
 
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("Webhook URL must use http or https");
+  const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
+  const hostname = hostnameOf(url);
+  const isLocalHost =
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  const localDevelopmentTarget = nodeEnv !== "production" && isLocalHost;
+
+  if (
+    url.protocol !== "https:" &&
+    !(url.protocol === "http:" && localDevelopmentTarget)
+  ) {
+    throw new Error(
+      "Webhook URLs must use HTTPS; HTTP is allowed only for localhost outside production",
+    );
   }
-
-  // Require https for non-localhost — localhost is allowed for dev
-    const isLocalDev =
-    url.hostname === "localhost" || url.hostname === "127.0.0.1";
-
-  if (!isLocalDev && BLOCKED_HOSTS.has(url.hostname)) {
+  if (url.username || url.password) {
+    throw new Error("Webhook URLs must not contain credentials");
+  }
+  if (url.hash) throw new Error("Webhook URLs must not contain fragments");
+  if (!hostname || hostname === "metadata.google.internal") {
     throw new Error("Hostname not allowed");
   }
-
-  if (!isLocalDev && url.protocol !== "https:") {
-    throw new Error("Non-local webhook URLs must use https");
+  if (isLocalHost && !localDevelopmentTarget) {
+    throw new Error("Local webhook destinations are not allowed in production");
   }
 
-  // If it's already an IP literal, check directly
-  if (isIP(url.hostname)) {
-    if (isPrivateIp(url.hostname) && !isLocalDev) {
-      throw new Error("Private IP addresses not allowed");
-    }
-    return;
+  let addresses: Address[];
+  try {
+    addresses = await (options.lookupFn ?? defaultLookup)(hostname);
+  } catch {
+    throw new Error("Could not resolve webhook hostname");
+  }
+  if (addresses.length === 0) {
+    throw new Error("Webhook hostname did not resolve");
   }
 
-  // Otherwise resolve and check every A/AAAA record
-  if (!isLocalDev) {
-    try {
-      const records = await lookup(url.hostname, { all: true });
-      for (const r of records) {
-        if (isPrivateIp(r.address)) {
-          throw new Error("Webhook hostname resolves to a private IP");
-        }
-      }
-    } catch (e: any) {
-      throw new Error(`Could not resolve hostname: ${e.message}`);
+  for (const item of addresses) {
+    const family = item.family || isIP(item.address);
+    const isAllowedLocalAddress =
+      localDevelopmentTarget &&
+      ((family === 4 && item.address === "127.0.0.1") ||
+        (family === 6 && item.address === "::1"));
+    if (!family || (isBlockedAddress(item.address, family) && !isAllowedLocalAddress)) {
+      throw new Error("Webhook hostname resolves to a non-public IP address");
     }
   }
+
+  return { url, addresses, localDevelopmentTarget };
 }

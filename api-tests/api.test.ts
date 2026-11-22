@@ -187,3 +187,166 @@ test("an admin can update another author's post", async () => {
   assert.equal(calls.versionCreate.length, 1);
   assert.equal(calls.update.length, 1);
 });
+
+
+import { createServer } from "node:http";
+import { validateWebhookUrl } from "../src/webhookUrl.ts";
+import { deliverWebhook } from "../src/webhookWorker.ts";
+
+const publicDns = async () => [{ address: "93.184.216.34", family: 4 }];
+
+test("webhook validation permits public HTTPS destinations", async () => {
+  const target = await validateWebhookUrl("https://hooks.example.com/events", {
+    nodeEnv: "production",
+    lookupFn: publicDns,
+  });
+  assert.equal(target.url.hostname, "hooks.example.com");
+  assert.deepEqual(target.addresses, [{ address: "93.184.216.34", family: 4 }]);
+});
+
+test("webhook validation rejects HTTP outside local development", async () => {
+  await assert.rejects(
+    validateWebhookUrl("http://hooks.example.com", {
+      nodeEnv: "development",
+      lookupFn: publicDns,
+    }),
+    /HTTPS/,
+  );
+});
+
+test("webhook validation rejects localhost in production", async () => {
+  await assert.rejects(
+    validateWebhookUrl("https://localhost/hook", {
+      nodeEnv: "production",
+      lookupFn: async () => [{ address: "::1", family: 6 }],
+    }),
+    /Local webhook destinations/,
+  );
+});
+
+test("webhook validation rejects URL credentials and fragments", async () => {
+  await assert.rejects(
+    validateWebhookUrl("https://user:pass@hooks.example.com", {
+      nodeEnv: "production",
+      lookupFn: publicDns,
+    }),
+    /credentials/,
+  );
+  await assert.rejects(
+    validateWebhookUrl("https://hooks.example.com/path#fragment", {
+      nodeEnv: "production",
+      lookupFn: publicDns,
+    }),
+    /fragments/,
+  );
+});
+
+test("webhook validation rejects private, loopback, link-local and reserved IPv4", async () => {
+  for (const address of [
+    "10.0.0.5",
+    "127.0.0.1",
+    "169.254.169.254",
+    "172.20.0.1",
+    "192.168.1.2",
+    "100.100.100.200",
+    "168.63.129.16",
+    "224.0.0.1",
+    "240.0.0.1",
+  ]) {
+    await assert.rejects(
+      validateWebhookUrl(`https://hooks.example.com`, {
+        nodeEnv: "production",
+        lookupFn: async () => [{ address, family: 4 }],
+      }),
+      /non-public IP/,
+      address,
+    );
+  }
+});
+
+test("webhook validation rejects prohibited IPv6 and IPv4-mapped IPv6", async () => {
+  for (const address of [
+    "::1",
+    "fe80::1",
+    "fd00::1",
+    "::ffff:127.0.0.1",
+    "2001:db8::1",
+    "ff02::1",
+  ]) {
+    await assert.rejects(
+      validateWebhookUrl("https://hooks.example.com", {
+        nodeEnv: "production",
+        lookupFn: async () => [{ address, family: 6 }],
+      }),
+      /non-public IP/,
+      address,
+    );
+  }
+});
+
+test("webhook validation rejects mixed public and private DNS answers", async () => {
+  await assert.rejects(
+    validateWebhookUrl("https://hooks.example.com", {
+      nodeEnv: "production",
+      lookupFn: async () => [
+        { address: "93.184.216.34", family: 4 },
+        { address: "10.0.0.8", family: 4 },
+      ],
+    }),
+    /non-public IP/,
+  );
+});
+
+test("webhook validation rejects DNS responses with no addresses", async () => {
+  await assert.rejects(
+    validateWebhookUrl("https://hooks.example.com", {
+      nodeEnv: "production",
+      lookupFn: async () => [],
+    }),
+    /did not resolve/,
+  );
+});
+
+test("development permits HTTP localhost but production does not", async () => {
+  const lookupFn = async () => [{ address: "127.0.0.1", family: 4 }];
+  const target = await validateWebhookUrl("http://localhost:4001/hook", {
+    nodeEnv: "development",
+    lookupFn,
+  });
+  assert.equal(target.localDevelopmentTarget, true);
+  await assert.rejects(
+    validateWebhookUrl("http://localhost:4001/hook", {
+      nodeEnv: "production",
+      lookupFn,
+    }),
+    /HTTPS/,
+  );
+});
+
+test("webhook delivery pins the validated address and does not follow redirects", async () => {
+  let hits = 0;
+  const server = createServer((_request, response) => {
+    hits += 1;
+    response.writeHead(302, { Location: "http://127.0.0.1:1/internal" });
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  try {
+    const status = await deliverWebhook(
+      `http://localhost:${address.port}/hook`,
+      { event: "post.published" },
+      {
+        nodeEnv: "development",
+        lookupFn: async () => [{ address: "127.0.0.1", family: 4 }],
+      },
+    );
+    assert.equal(status, 302);
+    assert.equal(hits, 1);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+});
