@@ -3,6 +3,7 @@ import { RateLimiterPostgres } from "rate-limiter-flexible";
 import {
   consumeLoginAttempt,
   resetLoginAttemptLimit,
+  hashLoginRateLimitKey,
 } from "./loginRateLimit.js";
 
 const pool = new Pool({
@@ -41,9 +42,9 @@ function getLimiter(): Promise<RateLimiterPostgres> {
 }
 
 export async function checkLoginRateLimit(key: string) {
-  await consumeLoginAttempt(await getLimiter(), key);
+  await consumeLoginAttempt(await getLimiter(), hashLoginRateLimitKey(key));
 }
 
 export async function resetLoginRateLimit(key: string) {
-  await resetLoginAttemptLimit(await getLimiter(), key);
+  await resetLoginAttemptLimit(await getLimiter(), hashLoginRateLimitKey(key));
 }
