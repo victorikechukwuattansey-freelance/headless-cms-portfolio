@@ -1,7 +1,72 @@
 import type { PrismaClient } from "./generated/prisma/client.js";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import type { lookup as dnsLookup } from "node:dns";
+
+import { validateWebhookUrl } from "./webhookUrl.js";
 
 const BATCH_SIZE = 20;
 const MAX_ATTEMPTS = 5;
+const REQUEST_TIMEOUT_MS = 10_000;
+
+type Address = { address: string; family: number };
+
+async function postToValidatedTarget(
+  target: Awaited<ReturnType<typeof validateWebhookUrl>>,
+  payload: unknown,
+): Promise<number> {
+  const { url, addresses } = target;
+  const address = addresses[0];
+  if (!address) throw new Error("Webhook hostname did not resolve");
+
+  const pinnedLookup = ((
+    _hostname: string,
+    options: { all?: boolean } | number,
+    callback: (...args: unknown[]) => void,
+  ) => {
+    if (typeof options === "object" && options.all) {
+      callback(null, [{ address: address.address, family: address.family }]);
+    } else {
+      callback(null, address.address, address.family);
+    }
+  ) as unknown as typeof dnsLookup;
+
+  return new Promise((resolve, reject) => {
+    const requestOptions = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      lookup: pinnedLookup,
+      ...(url.protocol === "https:" ? { servername: url.hostname.replace(/^\[|\]$/g, "") } : {}),
+    };
+    const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(
+      url,
+      requestOptions,
+      (response) => {
+        const status = response.statusCode ?? 0;
+        response.resume();
+        response.once("end", () => resolve(status));
+        response.once("error", reject);
+      },
+    );
+
+    request.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      request.destroy(new Error("Webhook request timed out"));
+    });
+    request.once("error", reject);
+    request.end(JSON.stringify(payload));
+  });
+}
+
+export async function deliverWebhook(
+  rawUrl: string,
+  payload: unknown,
+  options: { nodeEnv?: string; lookupFn?: (hostname: string) => Promise<Address[]> } = {},
+): Promise<number> {
+  const target = await validateWebhookUrl(rawUrl, options);
+  // The HTTP client connects to the validated address, while TLS still verifies
+  // the original hostname. Redirects are intentionally not followed.
+  return postToValidatedTarget(target, payload);
+}
 
 export async function processDeliveries(prisma: PrismaClient) {
   const due = await prisma.webhookDelivery.findMany({
@@ -19,14 +84,8 @@ export async function processDeliveries(prisma: PrismaClient) {
     const attempts = d.attempts + 1;
 
     try {
-      const res = await fetch(d.webhook.url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(d.payload),
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const status = await deliverWebhook(d.webhook.url, d.payload);
+      if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`);
 
       await prisma.webhookDelivery.update({
         where: { id: d.id },
@@ -39,7 +98,6 @@ export async function processDeliveries(prisma: PrismaClient) {
       });
     } catch (e) {
       const failed = attempts >= MAX_ATTEMPTS;
-      // Exponential backoff: 1min, 2min, 4min, 8min, ...
       const delayMs = Math.pow(2, attempts - 1) * 60_000;
 
       await prisma.webhookDelivery.update({
