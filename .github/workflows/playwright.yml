@@ -29,6 +29,9 @@ jobs:
       - name: Install API dependencies
         run: npm ci
       - name: Generate Prisma Client
+        # Prisma loads the config during generation, but does not connect to the database.
+        env:
+          DIRECT_URL: postgresql://ci:ci@localhost:5432/ci
         run: npx prisma generate
       - name: Build API
         run: npm run build
