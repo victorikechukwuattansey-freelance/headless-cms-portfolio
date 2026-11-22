@@ -4,6 +4,7 @@ import { getClientIp } from "../src/clientIp.ts";
 import {
   consumeLoginAttempt,
   resetLoginAttemptLimit,
+  hashLoginRateLimitKey,
   type LoginRateLimiter,
 } from "../src/loginRateLimit.ts";
 
@@ -69,6 +70,15 @@ test("shared login limiter fails closed when its backing store errors", async ()
     consumeLoginAttempt(limiter, "client:editor@example.com"),
     /Login is temporarily unavailable/,
   );
+});
+
+test("login limiter keys are hashed before they reach shared storage", () => {
+  const key = "203.0.113.42:editor@example.com";
+  const hashed = hashLoginRateLimitKey(key);
+
+  assert.match(hashed, /^[a-f0-9]{64}$/);
+  assert.equal(hashLoginRateLimitKey(key), hashed);
+  assert.equal(hashed.includes("editor@example.com"), false);
 });
 
 test("successful login resets the shared limiter key", async () => {
