@@ -1,7 +1,21 @@
 import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+const JWT_SECRET = (() => {
+  const secret = process.env.JWT_SECRET;
+  if (process.env.NODE_ENV === "production") {
+    if (!secret) {
+      throw new Error("JWT_SECRET must be set in production");
+    }
+    if (secret === "dev-secret" || secret.length < 32) {
+      throw new Error(
+        "JWT_SECRET must be at least 32 characters and must not be the development fallback in production",
+      );
+    }
+    return secret;
+  }
+  return secret || "dev-secret";
+})();
 
 export function signAccessToken(userId: string, role: string) {
   return jwt.sign({ userId, role, type: "access" }, JWT_SECRET, {

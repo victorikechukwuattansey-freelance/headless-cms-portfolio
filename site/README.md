@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+CMS SITE
 
-## Getting Started
+========
 
-First, run the development server:
+Next.js application for the public-facing content experience of the Headless CMS.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+RESPONSIBILITIES
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+----------------
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Provides the frontend for delivering content managed through the CMS API.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+TECHNOLOGY STACK
 
-## Learn More
+----------------
 
-To learn more about Next.js, take a look at the following resources:
+Next.js
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+React
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+TypeScript
 
-## Deploy on Vercel
+PREREQUISITES
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+-------------
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Node.js 22 or compatible version.
+
+npm.
+
+The CMS API running and reachable.
+
+ENVIRONMENT
+
+-----------
+
+NEXT_PUBLIC_API_URL: CMS API endpoint used by the Site application.
+
+Do not put private credentials or server-only secrets in NEXT_PUBLIC_ variables. Next.js exposes these values to browser-side code.
+
+SETUP
+
+-----
+
+Run from the repository root:
+
+npm --prefix site ci
+
+npm --prefix site run dev
+
+The development server defaults to port 3000.
+
+BUILD
+
+-----
+
+npm --prefix site run build
+
+PRODUCTION SERVER
+
+-----------------
+
+npm --prefix site run start
+
+The production server requires a successful build first.
+
+For architecture, API setup, database configuration and deployment scope, see the repository README at ../README.md.
