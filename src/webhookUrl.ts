@@ -37,7 +37,7 @@ const globalV6 = new BlockList();
 globalV6.addSubnet("2000::", 3, "ipv6");
 
 function hostnameOf(url: URL): string {
-  return url.hostname.replace(/^\\[|\\]$/g, "").toLowerCase();
+  return url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
 }
 
 function isBlockedAddress(address: string, family: number): boolean {
