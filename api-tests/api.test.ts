@@ -350,3 +350,154 @@ test("webhook delivery pins the validated address and does not follow redirects"
     );
   }
 });
+
+
+// Refresh-token rotation tests use a stateful Prisma transaction double. The
+// updateMany predicate is evaluated synchronously to model the database's
+// conditional single-winner update for concurrent requests.
+function createRefreshContext({
+  revokedAt = null,
+  expiresAt = new Date(Date.now() + 60_000),
+  failCreate = false,
+  additionalActiveToken = false,
+} = {}) {
+  const user = { id: "user-1", role: "EDITOR", email: "editor@example.com" };
+  const tokenRows = [{
+    tokenHash: hashRefreshToken("refresh-token-1"),
+    userId: user.id,
+    user,
+    expiresAt,
+    revokedAt,
+  }];
+  if (additionalActiveToken) {
+    tokenRows.push({
+      tokenHash: hashRefreshToken("other-active-token"),
+      userId: user.id,
+      user,
+      expiresAt: new Date(Date.now() + 60_000),
+      revokedAt: null,
+    });
+  }
+  const calls = { updateMany: [], create: [] };
+
+  let transactionQueue: Promise<void> = Promise.resolve();
+  const prisma: any = {
+    refreshToken: {
+      findUnique: async ({ where }) => {
+        const row = tokenRows.find((item) => item.tokenHash === where.tokenHash);
+        return row ? { ...row } : null;
+      },
+      updateMany: async (args) => {
+        calls.updateMany.push(args);
+        const matching = tokenRows.filter((row) => {
+          if (args.where.tokenHash && row.tokenHash !== args.where.tokenHash) return false;
+          if (args.where.userId && row.userId !== args.where.userId) return false;
+          if (args.where.revokedAt === null && row.revokedAt !== null) return false;
+          if (args.where.expiresAt?.gt && row.expiresAt <= args.where.expiresAt.gt) return false;
+          return true;
+        });
+        for (const row of matching) row.revokedAt = args.data.revokedAt;
+        return { count: matching.length };
+      },
+      create: async ({ data }) => {
+        calls.create.push(data);
+        if (failCreate) throw new Error("simulated successor insert failure");
+        const row = { ...data, revokedAt: null, user };
+        tokenRows.push(row);
+        return row;
+      },
+    },
+    $transaction: (callback: (tx: any) => Promise<unknown>) => {
+      const transaction = transactionQueue.then(async () => {
+        const snapshot = tokenRows.map((row) => ({ ...row }));
+        try {
+          return await callback(prisma);
+        } catch (error) {
+          tokenRows.splice(0, tokenRows.length, ...snapshot);
+          throw error;
+        }
+      });
+      transactionQueue = transaction.then(() => undefined, () => undefined);
+      return transaction;
+    },
+  };
+
+  return {
+    context: { prisma, user: null, ip: "127.0.0.1", tokenExpired: false },
+    tokenRows,
+    calls,
+  };
+}
+
+const refreshMutation = 'mutation { refreshSession(refreshToken: "refresh-token-1") { accessToken refreshToken user { id } } }';
+
+test("concurrent refresh requests produce exactly one successor token", async () => {
+  const { context, tokenRows, calls } = createRefreshContext();
+
+  const results = await Promise.all([
+    graphql({ schema, source: refreshMutation, contextValue: context }),
+    graphql({ schema, source: refreshMutation, contextValue: context }),
+  ]);
+
+  assert.equal(results.filter((result) => !result.errors).length, 1);
+  assert.equal(results.filter((result) => result.errors?.length).length, 1);
+  assert.equal(calls.create.length, 1);
+  assert.equal(tokenRows.length, 2);
+  assert.ok(tokenRows[0].revokedAt instanceof Date);
+  assert.equal(tokenRows[1].revokedAt, null);
+  assert.notEqual(tokenRows[1].tokenHash, tokenRows[0].tokenHash);
+});
+
+test("refreshing an already revoked token revokes remaining active tokens", async () => {
+  const { context, calls, tokenRows } = createRefreshContext({
+    revokedAt: new Date(),
+    additionalActiveToken: true,
+  });
+
+  const result = await graphql({
+    schema,
+    source: refreshMutation,
+    contextValue: context,
+  });
+
+  assert.match(result.errors?.[0]?.message ?? "", /Refresh token reused/i);
+  assert.equal(calls.create.length, 0);
+  assert.equal(calls.updateMany.length, 1);
+  assert.deepEqual(calls.updateMany[0].where, {
+    userId: "user-1",
+    revokedAt: null,
+  });
+  assert.ok(tokenRows[1].revokedAt instanceof Date);
+});
+
+test("expired refresh tokens are rejected without attempting rotation", async () => {
+  const { context, calls } = createRefreshContext({
+    expiresAt: new Date(Date.now() - 60_000),
+  });
+
+  const result = await graphql({
+    schema,
+    source: refreshMutation,
+    contextValue: context,
+  });
+
+  assert.match(result.errors?.[0]?.message ?? "", /Refresh token expired/i);
+  assert.equal(calls.updateMany.length, 0);
+  assert.equal(calls.create.length, 0);
+});
+
+test("successor creation failure rolls back the old token revocation", async () => {
+  const { context, tokenRows, calls } = createRefreshContext({ failCreate: true });
+
+  const result = await graphql({
+    schema,
+    source: refreshMutation,
+    contextValue: context,
+  });
+
+  assert.match(result.errors?.[0]?.message ?? "", /simulated successor insert failure/);
+  assert.equal(calls.updateMany.length, 1);
+  assert.equal(calls.create.length, 1);
+  assert.equal(tokenRows.length, 1);
+  assert.equal(tokenRows[0].revokedAt, null);
+});

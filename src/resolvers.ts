@@ -30,25 +30,41 @@ async function issueTokens(
   user: { id: string; role: string; email: string },
   existingRefresh?: string,
 ) {
-  // Revoke old if rotating
-  if (existingRefresh) {
-    const hash = hashRefreshToken(existingRefresh);
-    await ctx.prisma.refreshToken.updateMany({
-      where: { tokenHash: hash, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
-  }
-
   const accessToken = signAccessToken(user.id, user.role);
   const { raw, hash } = generateRefreshToken();
+  const refreshTokenData = {
+    tokenHash: hash,
+    userId: user.id,
+    expiresAt: new Date(Date.now() + REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000),
+  };
 
-  await ctx.prisma.refreshToken.create({
-    data: {
-      tokenHash: hash,
-      userId: user.id,
-      expiresAt: new Date(Date.now() + REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000),
-    },
-  });
+  if (existingRefresh) {
+    // The conditional update is the single-winner gate for concurrent rotations.
+    // Keep revocation and successor creation in one transaction so a failed
+    // create cannot leave the caller's current token revoked without a successor.
+    await ctx.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const revoked = await tx.refreshToken.updateMany({
+        where: {
+          tokenHash: hashRefreshToken(existingRefresh),
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { revokedAt: now },
+      });
+
+      if (revoked.count !== 1) {
+        throw new UserError(
+          "Refresh token is no longer valid",
+          "UNAUTHENTICATED",
+        );
+      }
+
+      await tx.refreshToken.create({ data: refreshTokenData });
+    });
+  } else {
+    await ctx.prisma.refreshToken.create({ data: refreshTokenData });
+  }
 
   return { accessToken, refreshToken: raw, user };
 }
