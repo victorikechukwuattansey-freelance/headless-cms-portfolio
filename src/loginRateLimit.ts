@@ -1,7 +1,13 @@
+import { createHash } from "node:crypto";
+
 export type LoginRateLimiter = {
   consume(key: string): Promise<unknown>;
   delete(key: string): Promise<unknown>;
 };
+
+export function hashLoginRateLimitKey(key: string): string {
+  return createHash("sha256").update(key).digest("hex");
+}
 
 export async function consumeLoginAttempt(
   limiter: LoginRateLimiter,
