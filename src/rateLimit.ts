@@ -26,6 +26,8 @@ function getLimiter(): Promise<RateLimiterPostgres> {
           blockDuration: 60 * 15,
           keyPrefix: "cms_login",
           tableName: "cms_login_rate_limits",
+          // Provisioned by Prisma migration; runtime credentials need DML only.
+          tableCreated: true,
         },
         (error) => {
           if (error) {
