@@ -370,7 +370,8 @@ function createRefreshContext({
   }];
   const calls = { updateMany: [], create: [] };
 
-  const prisma = {
+  let transactionQueue: Promise<void> = Promise.resolve();
+  const prisma: any = {
     refreshToken: {
       findUnique: async ({ where }) => {
         const row = tokenRows.find((item) => item.tokenHash === where.tokenHash);
@@ -396,16 +397,19 @@ function createRefreshContext({
         return row;
       },
     },
-  };
-
-  prisma.$transaction = async (callback) => {
-    const snapshot = tokenRows.map((row) => ({ ...row }));
-    try {
-      return await callback(prisma);
-    } catch (error) {
-      tokenRows.splice(0, tokenRows.length, ...snapshot);
-      throw error;
-    }
+    $transaction: (callback: (tx: any) => Promise<unknown>) => {
+      const transaction = transactionQueue.then(async () => {
+        const snapshot = tokenRows.map((row) => ({ ...row }));
+        try {
+          return await callback(prisma);
+        } catch (error) {
+          tokenRows.splice(0, tokenRows.length, ...snapshot);
+          throw error;
+        }
+      });
+      transactionQueue = transaction.then(() => undefined, () => undefined);
+      return transaction;
+    },
   };
 
   return {
