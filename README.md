@@ -173,6 +173,10 @@ The process groups deploy together from one image. The worker handles `SIGTERM` 
 
 Before deploying this process-group change, inspect the current Fly Machine counts and process groups. The first deployment creates a Machine for each configured process group; verify that the worker is running and that the web group remains independently scalable. No deployment or scaling operation is performed by CI.
 
+
+
+The login rate limiter uses the `cms_login_rate_limits` PostgreSQL table. Apply Prisma migrations with the deployment/migration role before releasing this API version. The API runtime role needs `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on this table, but does not need schema/table-creation privileges for it. Keep `DATABASE_URL` as the runtime connection and `DIRECT_URL` as the direct, unpooled migration connection.
+
 Admin and Site hosting must be configured independently. Production deployment requires configured secrets, a provisioned database, applied migrations, and independently verified application endpoints.
 
 ## Known limitations
