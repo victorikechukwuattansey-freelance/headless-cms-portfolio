@@ -151,6 +151,8 @@ Admin and Site hosting must be configured independently. Complete deployment aut
 
 Production deployment requires configured secrets, a provisioned database, applied migrations, and independently verified application endpoints.
 
+The login rate limiter uses the `cms_login_rate_limits` PostgreSQL table. Apply Prisma migrations with the deployment/migration role before releasing the API. The API runtime role needs `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on this table, but does not need schema/table-creation privileges for it. Keep `DATABASE_URL` as the runtime connection and `DIRECT_URL` as the direct, unpooled migration connection.
+
 ## Known limitations
 
 This is a portfolio project, not a claim of complete production readiness.
