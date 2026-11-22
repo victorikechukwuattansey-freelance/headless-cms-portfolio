@@ -2,7 +2,7 @@
   "name": "headless-cms",
   "version": "1.0.0",
   "type": "module",
-  "description": "",
+  "description": "Full-stack headless CMS with a GraphQL API, React administration dashboard, and Next.js public site.",
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -13,9 +13,19 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:generate": "prisma generate"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "headless-cms",
+    "graphql",
+    "typescript",
+    "nodejs",
+    "react",
+    "nextjs",
+    "prisma",
+    "postgresql",
+    "cloudinary"
+  ],
+  "author": "Victor Attansey",
+  "license": "UNLICENSED",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1148.0",
     "@aws-sdk/s3-request-presigner": "^3.1148.0",
