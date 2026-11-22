@@ -52,7 +52,8 @@ Create an API `.env` file in the repository root.
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection |
+| `DATABASE_URL` | Runtime PostgreSQL connection used by the API's Prisma Neon adapter. |
+| `DIRECT_URL` | Direct, unpooled PostgreSQL URL read by Prisma CLI configuration; migrations connect using this URL. Prisma Client generation reads the variable but does not connect to the database. |
 | `JWT_SECRET` | JWT signing secret |
 | `CLOUDINARY_CLOUD_NAME` | Cloudinary account |
 | `CLOUDINARY_API_KEY` | Cloudinary API key |
@@ -86,7 +87,7 @@ Start PostgreSQL:
 docker compose up -d
 ```
 
-Configure `DATABASE_URL` to match the local database configuration in `docker-compose.yml`. The Compose credentials are for local development only.
+Configure both `DATABASE_URL` and `DIRECT_URL` to use the local PostgreSQL connection from `docker-compose.yml` (host port `5433`). For this local, unpooled database, both can use the same connection URL. `DATABASE_URL` is used by the running API; `DIRECT_URL` is read by Prisma CLI configuration and used for migrations. The Compose credentials are for local development only.
 
 Generate Prisma Client and apply development migrations:
 
@@ -170,4 +171,4 @@ The JWT production-secret guard is implemented. A production secret must still b
 
 ## License
 
-No license is specified in this repository. Contact the project owner before reusing or redistributing the code.
+This repository does not grant a license to use, copy, modify, or redistribute its code. The root package is marked `UNLICENSED` in npm metadata. Contact the project owner for permission.
