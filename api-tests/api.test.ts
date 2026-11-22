@@ -359,6 +359,7 @@ function createRefreshContext({
   revokedAt = null,
   expiresAt = new Date(Date.now() + 60_000),
   failCreate = false,
+  additionalActiveToken = false,
 } = {}) {
   const user = { id: "user-1", role: "EDITOR", email: "editor@example.com" };
   const tokenRows = [{
@@ -368,6 +369,15 @@ function createRefreshContext({
     expiresAt,
     revokedAt,
   }];
+  if (additionalActiveToken) {
+    tokenRows.push({
+      tokenHash: hashRefreshToken("other-active-token"),
+      userId: user.id,
+      user,
+      expiresAt: new Date(Date.now() + 60_000),
+      revokedAt: null,
+    });
+  }
   const calls = { updateMany: [], create: [] };
 
   let transactionQueue: Promise<void> = Promise.resolve();
@@ -439,7 +449,10 @@ test("concurrent refresh requests produce exactly one successor token", async ()
 });
 
 test("refreshing an already revoked token revokes remaining active tokens", async () => {
-  const { context, calls } = createRefreshContext({ revokedAt: new Date() });
+  const { context, calls, tokenRows } = createRefreshContext({
+    revokedAt: new Date(),
+    additionalActiveToken: true,
+  });
 
   const result = await graphql({
     schema,
@@ -454,6 +467,7 @@ test("refreshing an already revoked token revokes remaining active tokens", asyn
     userId: "user-1",
     revokedAt: null,
   });
+  assert.ok(tokenRows[1].revokedAt instanceof Date);
 });
 
 test("expired refresh tokens are rejected without attempting rotation", async () => {
