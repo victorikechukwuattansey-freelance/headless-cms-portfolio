@@ -164,10 +164,10 @@ Both process groups require the same production environment and database credent
 Keep exactly one worker Machine running:
 
 ```bash
-fly scale count web=0 worker=1 -a headless-cms-viaai
+fly scale count worker=1 -a headless-cms-viaai
 ```
 
-Set the web count according to traffic requirements. The web group can remain at zero when idle because its HTTP service has auto-stop and auto-start enabled. Do not scale the worker to zero: scheduled publishing and webhook retries will pause. Do not run multiple worker Machines for this scheduler; the database lock is a secondary guard, not a replacement for operating one scheduler instance.
+Keep at least one web Machine configured so Fly Proxy has a Machine it can auto-start after idle auto-stop. Set the web count according to traffic requirements, but do not destroy the web group by setting its count to zero. Do not scale the worker to zero: scheduled publishing and webhook retries will pause. Do not run multiple worker Machines for this scheduler; the database lock is a secondary guard, not a replacement for operating one scheduler instance.
 
 The process groups deploy together from one image. The worker handles `SIGTERM` by stopping its interval, waiting for an in-flight scheduler tick, and disconnecting Prisma. Fly is configured with a 300-second shutdown timeout to allow graceful completion.
 
