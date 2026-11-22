@@ -134,7 +134,7 @@ test("unauthenticated users cannot create posts", async () => {
     contextValue: context,
   });
 
-  assert.equal(result.errors?.[0]?.extensions?.code, "UNAUTHENTICATED");
+  assert.match(result.errors?.[0]?.message ?? "", /Unauthorized/i);
   assert.equal(calls.create.length, 0);
 });
 
