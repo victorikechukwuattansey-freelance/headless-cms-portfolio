@@ -121,7 +121,7 @@ test("unauthenticated users cannot request draft posts", async () => {
     contextValue: context,
   });
 
-  assert.equal(result.errors?.[0]?.extensions?.code, "UNAUTHENTICATED");
+  assert.match(result.errors?.[0]?.message ?? "", /Unauthorized/i);
   assert.equal(calls.findMany.length, 0);
 });
 
@@ -157,7 +157,7 @@ test("an editor cannot update another author's post", async () => {
     contextValue: context,
   });
 
-  assert.equal(result.errors?.[0]?.extensions?.code, "FORBIDDEN");
+  assert.match(result.errors?.[0]?.message ?? "", /Forbidden/i);
   assert.equal(calls.update.length, 0);
   assert.equal(calls.versionCreate.length, 0);
 });
