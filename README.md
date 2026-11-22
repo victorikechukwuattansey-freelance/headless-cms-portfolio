@@ -150,7 +150,7 @@ npm --prefix site run build
 npm --prefix admin run lint
 ```
 
-The existing Playwright tests target the Playwright demonstration site. They are not comprehensive CMS end-to-end tests.
+The existing Playwright tests target the Playwright demonstration site. They are not comprehensive CMS end-to-end tests. The CI workflow runs for pull requests targeting any base branch, including stacked feature branches.
 
 ## Deployment
 
