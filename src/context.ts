@@ -1,7 +1,7 @@
 import { PrismaClient } from "./generated/prisma/client.js";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { verifyAccessToken } from "./auth.js";
-
+import { getClientIp } from "./clientIp.js";
 
 const adapter = new PrismaNeon({
   connectionString: process.env.DATABASE_URL!,
@@ -25,8 +25,7 @@ export async function createContext({ request }: { request: Request }) {
     }
   }
 
-  const xff = request.headers.get("x-forwarded-for");
-  const ip = xff?.split(",")[0].trim() ?? "unknown";
+  const ip = getClientIp(request.headers);
 
   return { prisma, user, ip, tokenExpired };
 }
