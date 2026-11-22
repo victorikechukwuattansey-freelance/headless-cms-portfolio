@@ -35,6 +35,8 @@ jobs:
         run: npx prisma generate
       - name: Build API
         run: npm run build
+      - name: Run API tests
+        run: npm test
 
   admin-build:
     name: Admin build
