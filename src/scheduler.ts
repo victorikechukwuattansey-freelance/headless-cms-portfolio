@@ -11,6 +11,12 @@ type SchedulerOptions = {
 };
 
 async function tryAcquireLock(prisma: PrismaClient): Promise<boolean> {
+  await prisma.schedulerLock.upsert({
+    where: { id: "singleton" },
+    update: {},
+    create: { id: "singleton" },
+  });
+
   const now = new Date();
   const result = await prisma.schedulerLock.updateMany({
     where: {
