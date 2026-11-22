@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import jwt from "jsonwebtoken";
-import { graphql, GraphQLError } from "graphql";
+import { graphql } from "graphql";
 import { makeExecutableSchema } from "@graphql-tools/schema";
-import { typeDefs } from "../../src/schema.ts";
-import { resolvers } from "../../src/resolvers.ts";
+import { typeDefs } from "../src/schema.ts";
+import { resolvers } from "../src/resolvers.ts";
 import {
   generateRefreshToken,
   hashRefreshToken,
   signAccessToken,
   verifyAccessToken,
-} from "../../src/auth.ts";
+} from "../src/auth.ts";
 
 const schema = makeExecutableSchema({ typeDefs, resolvers });
 
