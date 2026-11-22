@@ -15,8 +15,22 @@ concurrency:
 
 jobs:
   api-build:
-    name: API build
+    name: API build and database migration
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -29,13 +43,45 @@ jobs:
       - name: Install API dependencies
         run: npm ci
       - name: Generate Prisma Client
-        # Prisma loads the config during generation, but does not connect to the database.
         env:
           DIRECT_URL: postgresql://ci:ci@localhost:5432/ci
         run: npx prisma generate
+      - name: Apply database migrations
+        env:
+          DIRECT_URL: postgresql://ci:ci@localhost:5432/ci
+        run: npm run prisma:deploy
+      - name: Create least-privilege runtime test role
+        env:
+          DIRECT_URL: postgresql://ci:ci@localhost:5432/ci
+        run: |
+          node --input-type=module <<'NODE'
+          import { Pool } from "pg";
+
+          const pool = new Pool({ connectionString: process.env.DIRECT_URL });
+          try {
+            await pool.query(`
+              DO $$
+              BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cms_runtime') THEN
+                  CREATE ROLE cms_runtime LOGIN PASSWORD 'runtime-ci';
+                END IF;
+              END
+              $$;
+            `);
+            await pool.query("GRANT USAGE ON SCHEMA public TO cms_runtime");
+            await pool.query(
+              'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."cms_login_rate_limits" TO cms_runtime',
+            );
+          } finally {
+            await pool.end();
+          }
+          NODE
       - name: Build API
         run: npm run build
       - name: Run API tests
+        env:
+          DATABASE_URL: postgresql://cms_runtime:runtime-ci@localhost:5432/ci
+          RUN_DATABASE_INTEGRATION_TESTS: "true"
         run: npm test
 
   admin-build:
