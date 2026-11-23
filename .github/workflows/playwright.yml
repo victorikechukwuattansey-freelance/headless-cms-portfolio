@@ -149,3 +149,12 @@ jobs:
           name: generic-playwright-report
           path: playwright-report/
           retention-days: 14
+
+  docker-image-build:
+    name: Docker image build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Build API and worker image
+        run: docker build --pull --tag headless-cms:ci .
