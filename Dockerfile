@@ -1,33 +1,36 @@
-# ── Build stage ──
-FROM node:22-slim AS builder
+# Build stage
+FROM node:24-slim AS builder
 
 WORKDIR /app
 
-# Install dependencies first (better layer caching)
+# Install dependencies and generate the Prisma client before compiling.
 COPY package*.json ./
 COPY prisma ./prisma
+COPY prisma7.config.ts ./
 RUN npm ci
+# Prisma Client generation reads DIRECT_URL through prisma7.config.ts but does
+# not connect to the database. A placeholder keeps image builds self-contained.
+RUN DIRECT_URL=postgresql://build:build@127.0.0.1:5432/build npx prisma generate
 
-# Copy source and build
 COPY tsconfig.json ./
 COPY src ./src
-RUN npx prisma generate
 RUN npm run build
 
-# ── Runtime stage ──
-FROM node:22-slim
+# Runtime stage: keep the image free of TypeScript, Prisma CLI, and test tooling.
+FROM node:24-slim AS runtime
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Copy production deps and built output
-COPY --from=builder /app/node_modules ./node_modules
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/src/generated ./src/generated
-COPY --from=builder /app/prisma ./prisma
-COPY package*.json ./
 
 EXPOSE 4000
 
+# The same image runs the API or the scheduler worker. Override this command
+# with: node dist/src/worker.js
 CMD ["node", "dist/src/server.js"]
