@@ -44,6 +44,10 @@ type LibraryItem = {
   createdAt: string;
 };
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "An unexpected error occurred";
+}
+
 function thumbUrl(url: string, w = 200, h = 200): string {
   if (!url.includes("res.cloudinary.com")) return url;
   return url.replace(
@@ -71,8 +75,8 @@ export default function App() {
       const data = await gql<{ posts: Post[] }>(POSTS_QUERY);
       setPosts(data.posts);
       setError(null);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e));
     }
   }
 
@@ -90,8 +94,8 @@ export default function App() {
       setLibrary(reset ? data.media : [...library, ...data.media]);
       setLibraryHasMore(data.media.length === PAGE_SIZE);
       setError(null);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e));
     }
   }
 
@@ -105,8 +109,8 @@ export default function App() {
     try {
       await gql(`mutation($id:ID!){ deleteMedia(id:$id) }`, { id });
       await loadLibrary(true);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e));
     }
   }
 
@@ -123,8 +127,8 @@ export default function App() {
         { id: m.id, alt: next.trim() || null },
       );
       await loadLibrary(true);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e));
     }
   }
 
@@ -149,8 +153,8 @@ export default function App() {
     setTokens(data.login.accessToken, data.login.refreshToken);
     setTok(data.login.accessToken);
     setError(null);
-  } catch (e: any) {
-    setError(e.message);
+  } catch (e: unknown) {
+      setError(errorMessage(e));
   }
 }
 
@@ -172,32 +176,43 @@ export default function App() {
 }
 
   useEffect(() => {
-    if (token) loadPosts();
+    if (!token) return;
+
+    let cancelled = false;
+    gql<{ posts: Post[] }>(POSTS_QUERY)
+      .then((data) => {
+        if (cancelled) return;
+        setPosts(data.posts);
+        setError(null);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setError(errorMessage(error));
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
-  // Reload draft fields when locale changes (or a post is opened for edit)
-  useEffect(() => {
+  function changeLocale(nextLocale: string) {
+    setLocale(nextLocale);
     if (!draft?.id) return;
-    const post = posts.find((p) => p.id === draft.id);
+
+    const post = posts.find((item) => item.id === draft.id);
     if (!post) return;
 
-    if (locale === post.defaultLocale) {
-      setDraft({
-        id: post.id,
-        title: post.title,
-        slug: post.slug,
-        content: post.content,
-      });
-    } else {
-      const t = post.translations.find((t) => t.locale === locale);
-      setDraft({
-        id: post.id,
-        title: t?.title ?? "",
-        slug: t?.slug ?? "",
-        content: t?.content ?? "",
-      });
-    }
-  }, [locale, draft?.id]);
+    const translation = post.translations.find(
+      (item) => item.locale === nextLocale,
+    );
+    const isDefaultLocale = nextLocale === post.defaultLocale;
+
+    setDraft({
+      id: post.id,
+      title: isDefaultLocale ? post.title : (translation?.title ?? ""),
+      slug: isDefaultLocale ? post.slug : (translation?.slug ?? ""),
+      content: isDefaultLocale ? post.content : (translation?.content ?? ""),
+    });
+  }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -233,7 +248,11 @@ export default function App() {
         { method: "POST", body: formData },
       );
       if (!uploadRes.ok) throw new Error("Cloudinary upload failed");
-      const { secure_url, bytes, format } = await uploadRes.json();
+      const { secure_url, bytes, format } = (await uploadRes.json()) as {
+        secure_url: string;
+        bytes: number;
+        format: string;
+      };
 
       const mediaData = await gql<{ createMedia: { id: string } }>(
         `mutation($url:String!, $mimeType:String, $size:Int) {
@@ -244,8 +263,8 @@ export default function App() {
 
       setHeroMediaId(mediaData.createMedia.id);
       setError(null);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(errorMessage(err));
     } finally {
       setUploading(false);
     }
@@ -305,8 +324,8 @@ export default function App() {
       setHeroMediaId(null);
       setError(null);
       await loadPosts();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e));
     }
   }
 
@@ -333,8 +352,8 @@ export default function App() {
       setDraft(null);
       setHeroMediaId(null);
       setError(null);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e));
     }
   }
 
@@ -346,8 +365,8 @@ export default function App() {
         id: post.id,
       });
       await loadPosts();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e));
     }
   }
 
@@ -356,8 +375,8 @@ export default function App() {
     try {
       await gql(`mutation($id:ID!){ deletePost(id:$id) }`, { id: post.id });
       await loadPosts();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e));
     }
   }
 
@@ -431,7 +450,7 @@ export default function App() {
               <select
                 style={styles.input}
                 value={locale}
-                onChange={(e) => setLocale(e.target.value)}
+                onChange={(e) => changeLocale(e.target.value)}
               >
                 <option value="en">English (default)</option>
                 <option value="fr">Français</option>
