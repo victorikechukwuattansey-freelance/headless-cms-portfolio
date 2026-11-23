@@ -152,6 +152,21 @@ npm --prefix admin run lint
 
 The existing Playwright tests target the Playwright demonstration site. They are not comprehensive CMS end-to-end tests. The CI workflow runs for pull requests targeting any base branch, including stacked feature branches.
 
+Build the API and background-worker container image locally:
+
+```bash
+docker build -t headless-cms:local .
+```
+
+The image contains the compiled API, generated Prisma Client, and production dependencies. It can run either process:
+
+- API (default): `node dist/src/server.js`
+- Background worker: `node dist/src/worker.js` (override the image command)
+
+The Docker build generates Prisma Client using a build-only placeholder `DIRECT_URL`; generation does not connect to PostgreSQL. Running the API or worker still requires a reachable `DATABASE_URL` and the applicable application secrets. Database migrations remain a separate setup/deployment step.
+
+GitHub Actions builds this image on pushes and pull requests. This validates image construction; it does not deploy or publish the image.
+
 ## Deployment
 
 The Fly.io app uses two process groups from the same image:
