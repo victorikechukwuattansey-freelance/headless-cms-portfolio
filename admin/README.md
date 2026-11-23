@@ -1,69 +1,48 @@
-CMS ADMIN
-
-=========
+# CMS Admin
 
 React and TypeScript administration interface for the Headless CMS.
 
-RESPONSIBILITIES
-
-----------------
+## Responsibilities
 
 Provides the management interface for interacting with CMS functionality through the GraphQL API.
 
-TECHNOLOGY STACK
+## Technology stack
 
-----------------
+- React
+- TypeScript
+- Vite
+- ESLint
 
-React
+## Prerequisites
 
-TypeScript
+- Node.js 24
+- npm
+- The CMS API running and reachable
 
-Vite
+## Environment
 
-ESLint
+- `VITE_API_URL`: CMS GraphQL API endpoint
 
-PREREQUISITES
+For local development, Vite proxies `/graphql` to `http://localhost:4000`.
 
--------------
-
-Node.js 22 or compatible version.
-
-npm.
-
-The CMS API running and reachable.
-
-ENVIRONMENT
-
------------
-
-VITE_API_URL: CMS GraphQL API endpoint.
-
-For local development, Vite proxies /graphql to http://localhost:4000.
-
-SETUP
-
------
+## Setup
 
 Run from the repository root:
 
+```bash
 npm --prefix admin ci
-
 npm --prefix admin run dev
+```
 
-The development server defaults to port 5173.
+The development server defaults to port `5173`.
 
-BUILD AND LINT
+## Build and lint
 
---------------
-
-Build:
-
+```bash
 npm --prefix admin run build
-
-Lint:
-
 npm --prefix admin run lint
+```
 
-Lint findings should be evaluated independently of build results.
+Lint is part of the repository CI validation.
 
 For architecture, API setup, database configuration and deployment scope, see the repository README at ../README.md.

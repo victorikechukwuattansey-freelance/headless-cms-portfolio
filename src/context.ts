@@ -1,9 +1,9 @@
 import { PrismaClient } from "./generated/prisma/client.js";
-import { PrismaNeon } from "@prisma/adapter-neon";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { verifyAccessToken } from "./auth.js";
 import { getClientIp } from "./clientIp.js";
 
-const adapter = new PrismaNeon({
+const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL!,
 });
 

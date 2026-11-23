@@ -43,14 +43,28 @@ These capabilities do not imply comprehensive automated test coverage for every 
 
 ## Prerequisites
 
-- Node.js 22 or compatible version.
-- npm.
-- Docker Desktop or a PostgreSQL instance.
-- Cloudinary credentials for media functionality.
+- Node.js 24
+- npm
+- Docker Desktop or a PostgreSQL instance
+- Cloudinary credentials for media functionality
+
+Use the same Node.js major version for the API, Admin, and Site.
 
 ## Environment configuration
 
-Create an API `.env` file in the repository root.
+Create the API environment file from the safe template:
+
+```bash
+cp .env.example .env
+```
+
+PowerShell equivalent:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Review the values before starting the API. The example values are for local development only and are not production credentials.
 
 | Variable | Purpose |
 |---|---|
@@ -60,7 +74,7 @@ Create an API `.env` file in the repository root.
 | `CLOUDINARY_CLOUD_NAME` | Cloudinary account |
 | `CLOUDINARY_API_KEY` | Cloudinary API key |
 | `CLOUDINARY_API_SECRET` | Cloudinary API secret |
-| `CORS_ORIGIN` | CORS configuration |
+| `CORS_ORIGIN` | Comma-separated allowed frontend origins |
 | `PORT` | API listening port |
 | `NODE_ENV` | Runtime environment |
 | `SENTRY_DSN` | Optional Sentry configuration |
@@ -88,7 +102,7 @@ Start PostgreSQL:
 docker compose up -d
 ```
 
-Configure both `DATABASE_URL` and `DIRECT_URL` to use the local PostgreSQL connection from `docker-compose.yml` (host port `5433`). For this local, unpooled database, both can use the same connection URL. `DATABASE_URL` is used by the API and worker; `DIRECT_URL` is read by Prisma CLI configuration and used for migrations. The Compose credentials are for local development only.
+Configure both `DATABASE_URL` and `DIRECT_URL` to use the local PostgreSQL connection from `docker-compose.yml` (host port `5433`). For this local, unpooled database, both can use the same connection URL. `DATABASE_URL` is used by the API and worker; `DIRECT_URL` is read by Prisma CLI configuration and used for migrations. The API uses Prisma's PostgreSQL driver adapter, which supports local PostgreSQL and hosted PostgreSQL connection strings. The Compose credentials are for local development only.
 
 Generate Prisma Client and apply development migrations:
 
@@ -146,8 +160,8 @@ Run each build from the repository root:
 npm run build
 npm test
 npm --prefix admin run build
-npm --prefix site run build
 npm --prefix admin run lint
+npm --prefix site run build
 ```
 
 The existing Playwright tests target the Playwright demonstration site. They are not comprehensive CMS end-to-end tests. The CI workflow runs for pull requests targeting any base branch, including stacked feature branches.
@@ -165,7 +179,9 @@ The image contains the compiled API, generated Prisma Client, and production dep
 
 The Docker build generates Prisma Client using a build-only placeholder `DIRECT_URL`; generation does not connect to PostgreSQL. Running the API or worker still requires a reachable `DATABASE_URL` and the applicable application secrets. Database migrations remain a separate setup/deployment step.
 
-GitHub Actions builds this image on pushes and pull requests. This validates image construction; it does not deploy or publish the image.
+CI validates the image build, starts the API and worker containers against a disposable PostgreSQL database, checks a GraphQL query against the database, and verifies worker shutdown. This validates container startup and a basic database-backed API path; it is not a full production deployment test.
+
+The Admin CI job runs both the production build and ESLint. GitHub Actions also builds the Site and runs the existing generic Playwright browser tests.
 
 ## Deployment
 
@@ -188,8 +204,6 @@ The process groups deploy together from one image. The worker handles `SIGTERM` 
 
 Before deploying this process-group change, inspect the current Fly Machine counts and process groups. The first deployment creates a Machine for each configured process group; verify that the worker is running and that the web group remains independently scalable. No deployment or scaling operation is performed by CI.
 
-
-
 The login rate limiter uses the `cms_login_rate_limits` PostgreSQL table. Apply Prisma migrations with the deployment/migration role before releasing this API version. The API runtime role needs `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on this table, but does not need schema/table-creation privileges for it. Keep `DATABASE_URL` as the runtime connection and `DIRECT_URL` as the direct, unpooled migration connection.
 
 Admin and Site hosting must be configured independently. Production deployment requires configured secrets, a provisioned database, applied migrations, and independently verified application endpoints.
@@ -205,7 +219,6 @@ Areas requiring further validation or hardening include:
 - Webhook delivery observability and operational alerting.
 - Production migration and recovery procedures.
 - CMS-specific automated end-to-end test coverage.
-- Outstanding Admin lint and dependency audit findings.
 - Production capacity, backups and restore procedures.
 - Admin and Site deployment automation.
 
