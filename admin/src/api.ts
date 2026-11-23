@@ -39,7 +39,7 @@ type GraphQLResponse<T> = {
   errors?: GraphQLError[];
 };
 
-export async function gql<T = any>(
+export async function gql<T = unknown>(
   query: string,
   variables: Record<string, unknown> = {},
   opts: GqlOptions = {}
@@ -60,7 +60,7 @@ export async function gql<T = any>(
   // If the token is expired and we have a refresh token, try once more
   const expired =
     json.errors?.some(
-      (e: any) => e.extensions?.code === "TOKEN_EXPIRED"
+      (error: GraphQLError) => error.extensions?.code === "TOKEN_EXPIRED"
     );
 
   if (expired && !opts.skipAuthRetry) {
