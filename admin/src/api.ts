@@ -29,9 +29,19 @@ export function setToken(token: string | null) {
 
 type GqlOptions = { skipAuthRetry?: boolean };
 
+type GraphQLError = {
+  message: string;
+  extensions?: { code?: string };
+};
+
+type GraphQLResponse<T> = {
+  data?: T;
+  errors?: GraphQLError[];
+};
+
 export async function gql<T = any>(
   query: string,
-  variables: Record<string, any> = {},
+  variables: Record<string, unknown> = {},
   opts: GqlOptions = {}
 ): Promise<T> {
   const accessToken = getAccessToken();
@@ -45,7 +55,7 @@ export async function gql<T = any>(
     body: JSON.stringify({ query, variables }),
   });
 
-  const json = await res.json();
+  const json = (await res.json()) as GraphQLResponse<T>;
 
   // If the token is expired and we have a refresh token, try once more
   const expired =
@@ -86,8 +96,10 @@ async function tryRefresh(): Promise<boolean> {
         variables: { rt: refreshToken },
       }),
     });
-    const json = await res.json();
-    if (json.errors?.length) return false;
+    const json = (await res.json()) as GraphQLResponse<{
+      refreshSession: { accessToken: string; refreshToken: string };
+    }>;
+    if (json.errors?.length || !json.data) return false;
     const { accessToken, refreshToken: newRt } = json.data.refreshSession;
     setTokens(accessToken, newRt);
     return true;
